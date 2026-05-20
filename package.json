@@ -1,0 +1,1 @@
+{"name": "@doimus/ring", "version": "1.0.0", "description": "Doimus native plugin for Ring devices (doorbells, cameras, alarm, sensors, smart lighting)", "license": "MIT", "author": "Matteo Crippa", "main": "index.js", "doimus": {"type": "native"}, "dependencies": {"ring-client-api": "^14.0.0"}}

@@ -1,0 +1,69 @@
+{
+  "schema": {
+    "refreshToken": {
+      "type": "string",
+      "title": "Refresh Token",
+      "required": true,
+      "format": "password",
+      "description": "Ring API refresh token. Generate using: npx -p ring-client-api ring-auth-cli"
+    },
+    "cameraStatusPollingSeconds": {
+      "type": "integer",
+      "title": "Camera Polling Interval (seconds)",
+      "default": 20,
+      "minimum": 5
+    },
+    "avoidSnapshotBatteryDrain": {
+      "type": "boolean",
+      "title": "Avoid Snapshot Battery Drain",
+      "default": false,
+      "description": "Minimum 10 min interval for battery camera snapshots"
+    },
+    "hideCameraLight": {
+      "type": "boolean",
+      "title": "Hide Camera Light",
+      "default": false
+    },
+    "hideCameraSirenSwitch": {
+      "type": "boolean",
+      "title": "Hide Camera Siren",
+      "default": false
+    },
+    "hideCameraMotionSensor": {
+      "type": "boolean",
+      "title": "Hide Camera Motion Sensor",
+      "default": false
+    },
+    "hideDoorbellSwitch": {
+      "type": "boolean",
+      "title": "Hide Doorbell Switch",
+      "default": false
+    },
+    "hideInHomeDoorbellSwitch": {
+      "type": "boolean",
+      "title": "Hide In-Home Doorbell",
+      "default": false
+    },
+    "hideAlarmSirenSwitch": {
+      "type": "boolean",
+      "title": "Hide Alarm Siren",
+      "default": false
+    },
+    "hideLightGroups": {
+      "type": "boolean",
+      "title": "Hide Light Groups",
+      "default": false
+    },
+    "hideDeviceIds": {
+      "type": "array",
+      "title": "Hidden Device IDs",
+      "items": { "type": "string", "title": "Device ID" }
+    },
+    "locationIds": {
+      "type": "array",
+      "title": "Location IDs",
+      "items": { "type": "string", "title": "Location ID" },
+      "description": "Only include these locations. Leave empty for all."
+    }
+  }
+}
