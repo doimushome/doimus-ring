@@ -6,51 +6,93 @@ let ringApi = null;
 let devices = new Map();
 let pollTimer = null;
 let locationModeTimer = null;
+let savedApi = null;
 
 function makeDeviceId(zid, suffix = "") {
   return `ring-${zid}${suffix ? "-" + suffix : ""}`;
 }
 
 function mapDeviceType(dt) {
-  if ([RingDeviceType.ContactSensor, RingDeviceType.RetrofitZone, RingDeviceType.TiltSensor,
-       RingDeviceType.GlassbreakSensor, RingDeviceType.Sensor, RingDeviceType.MotionSensor,
-       RingDeviceType.BeamsMotionSensor, RingDeviceType.FloodFreezeSensor, RingDeviceType.FreezeSensor,
-       RingDeviceType.WaterSensor, RingDeviceType.TemperatureSensor, RingDeviceType.SmokeAlarm,
-       RingDeviceType.CoAlarm, RingDeviceType.SmokeCoListener, RingDeviceType.KiddeSmokeCoAlarm,
-       RingDeviceType.BaseStation, RingDeviceType.BaseStationPro, RingDeviceType.Keypad].includes(dt)) {
+  if (
+    [
+      RingDeviceType.ContactSensor,
+      RingDeviceType.RetrofitZone,
+      RingDeviceType.TiltSensor,
+      RingDeviceType.GlassbreakSensor,
+      RingDeviceType.Sensor,
+      RingDeviceType.MotionSensor,
+      RingDeviceType.BeamsMotionSensor,
+      RingDeviceType.FloodFreezeSensor,
+      RingDeviceType.FreezeSensor,
+      RingDeviceType.WaterSensor,
+      RingDeviceType.TemperatureSensor,
+      RingDeviceType.SmokeAlarm,
+      RingDeviceType.CoAlarm,
+      RingDeviceType.SmokeCoListener,
+      RingDeviceType.KiddeSmokeCoAlarm,
+      RingDeviceType.BaseStation,
+      RingDeviceType.BaseStationPro,
+      RingDeviceType.Keypad,
+    ].includes(dt)
+  ) {
     return "sensor";
   }
   if (dt === RingDeviceType.SecurityPanel) return "sensor";
   if (dt === RingDeviceType.Lock || /^lock($|\.)/.test(dt)) return "lock";
-  if (dt === RingDeviceType.Switch || dt === RingDeviceType.WaterValve) return "switch";
+  if (dt === RingDeviceType.Switch || dt === RingDeviceType.WaterValve)
+    return "switch";
   if (dt === RingDeviceType.Outlet) return "outlet";
   if (dt === RingDeviceType.Fan) return "fan";
   if (dt === RingDeviceType.Thermostat) return "thermostat";
-  if ([RingDeviceType.MultiLevelSwitch, RingDeviceType.MultiLevelBulb, RingDeviceType.BeamsSwitch,
-       RingDeviceType.BeamsMultiLevelSwitch, RingDeviceType.BeamsTransformerSwitch,
-       RingDeviceType.BeamsLightGroupSwitch].includes(dt)) {
+  if (
+    [
+      RingDeviceType.MultiLevelSwitch,
+      RingDeviceType.MultiLevelBulb,
+      RingDeviceType.BeamsSwitch,
+      RingDeviceType.BeamsMultiLevelSwitch,
+      RingDeviceType.BeamsTransformerSwitch,
+      RingDeviceType.BeamsLightGroupSwitch,
+    ].includes(dt)
+  ) {
     return "light";
   }
   return null;
 }
 
 function cameraCapabilities(cam, cfg) {
-  const caps = [], state = {};
-  if (!cfg.hideCameraMotionSensor) { caps.push("motion"); state.motion = false; }
+  const caps = [],
+    state = {};
+  if (!cfg.hideCameraMotionSensor) {
+    caps.push("motion");
+    state.motion = false;
+  }
   if (cam.hasBattery) {
     caps.push("battery", "battery_low");
     state.battery = cam.batteryLevel ?? 100;
     state.battery_low = cam.hasLowBattery ?? false;
   }
-  if (cam.hasLight && !cfg.hideCameraLight) { caps.push("on"); state.on = cam.data?.led_status === "on"; }
-  if (cam.hasSiren && !cfg.hideCameraSirenSwitch) { caps.push("active"); state.active = Boolean(cam.data?.siren_status?.seconds_remaining); }
-  if (cam.hasInHomeDoorbell && !cfg.hideInHomeDoorbellSwitch) { caps.push("active"); state.active = cam.data?.settings?.chime_settings?.enabled ?? false; }
-  if (cam.isDoorbot && !cfg.hideDoorbellSwitch) { caps.push("doorbell"); state.doorbell = false; }
+  if (cam.hasLight && !cfg.hideCameraLight) {
+    caps.push("on");
+    state.on = cam.data?.led_status === "on";
+  }
+  if (cam.hasSiren && !cfg.hideCameraSirenSwitch) {
+    caps.push("active");
+    state.active = Boolean(cam.data?.siren_status?.seconds_remaining);
+  }
+  if (cam.hasInHomeDoorbell && !cfg.hideInHomeDoorbellSwitch) {
+    caps.push("active");
+    state.active = cam.data?.settings?.chime_settings?.enabled ?? false;
+  }
+  if (cam.isDoorbot && !cfg.hideDoorbellSwitch) {
+    caps.push("doorbell");
+    state.doorbell = false;
+  }
   return { caps, state };
 }
 
 function deviceCapabilities(dev, type) {
-  const caps = [], state = {};
+  const caps = [],
+    state = {};
   const dt = dev.deviceType;
 
   if (type === "lock") {
@@ -59,12 +101,21 @@ function deviceCapabilities(dev, type) {
     state.battery = dev.data?.batteryLevel ?? 100;
     state.battery_low = dev.data?.batteryStatus === "low";
   } else if (type === "switch" || type === "outlet") {
-    caps.push("on"); state.on = dev.data?.on === true;
+    caps.push("on");
+    state.on = dev.data?.on === true;
   } else if (type === "light") {
-    caps.push("on"); state.on = dev.data?.on === true;
-    if ([RingDeviceType.MultiLevelSwitch, RingDeviceType.MultiLevelBulb, RingDeviceType.BeamsSwitch,
-         RingDeviceType.BeamsMultiLevelSwitch].includes(dt)) {
-      caps.push("brightness"); state.brightness = Math.round((dev.data?.level ?? 1) * 100);
+    caps.push("on");
+    state.on = dev.data?.on === true;
+    if (
+      [
+        RingDeviceType.MultiLevelSwitch,
+        RingDeviceType.MultiLevelBulb,
+        RingDeviceType.BeamsSwitch,
+        RingDeviceType.BeamsMultiLevelSwitch,
+      ].includes(dt)
+    ) {
+      caps.push("brightness");
+      state.brightness = Math.round((dev.data?.level ?? 1) * 100);
     }
   } else if (type === "fan") {
     caps.push("on", "rotation_speed");
@@ -77,18 +128,30 @@ function deviceCapabilities(dev, type) {
     state.heating_state = 0;
     state.heating_mode = 0;
   } else if (type === "sensor") {
-    if ([RingDeviceType.ContactSensor, RingDeviceType.RetrofitZone, RingDeviceType.TiltSensor,
-         RingDeviceType.GlassbreakSensor].includes(dt)) {
+    if (
+      [
+        RingDeviceType.ContactSensor,
+        RingDeviceType.RetrofitZone,
+        RingDeviceType.TiltSensor,
+        RingDeviceType.GlassbreakSensor,
+      ].includes(dt)
+    ) {
       caps.push("contact", "battery", "battery_low");
       state.contact = dev.data?.faulted === true;
       state.battery = dev.data?.batteryLevel ?? 100;
       state.battery_low = dev.data?.batteryStatus === "low";
-    } else if (dt === RingDeviceType.MotionSensor || dt === RingDeviceType.BeamsMotionSensor) {
+    } else if (
+      dt === RingDeviceType.MotionSensor ||
+      dt === RingDeviceType.BeamsMotionSensor
+    ) {
       caps.push("motion", "battery", "battery_low");
       state.motion = dev.data?.faulted === true;
       state.battery = dev.data?.batteryLevel ?? 100;
       state.battery_low = dev.data?.batteryStatus === "low";
-    } else if (dt === RingDeviceType.FloodFreezeSensor || dt === RingDeviceType.WaterSensor) {
+    } else if (
+      dt === RingDeviceType.FloodFreezeSensor ||
+      dt === RingDeviceType.WaterSensor
+    ) {
       caps.push("leak", "battery", "battery_low");
       state.leak = dev.data?.faulted === true;
       state.battery = dev.data?.batteryLevel ?? 100;
@@ -103,22 +166,37 @@ function deviceCapabilities(dev, type) {
       state.temperature = dev.data?.celsius ?? 0;
       state.battery = dev.data?.batteryLevel ?? 100;
       state.battery_low = dev.data?.batteryStatus === "low";
-    } else if ([RingDeviceType.SmokeAlarm, RingDeviceType.CoAlarm,
-                RingDeviceType.SmokeCoListener, RingDeviceType.KiddeSmokeCoAlarm].includes(dt)) {
+    } else if (
+      [
+        RingDeviceType.SmokeAlarm,
+        RingDeviceType.CoAlarm,
+        RingDeviceType.SmokeCoListener,
+        RingDeviceType.KiddeSmokeCoAlarm,
+      ].includes(dt)
+    ) {
       caps.push("smoke", "battery", "battery_low");
-      state.smoke = dev.data?.alarmStatus === "active" || dev.data?.smoke?.alarmStatus === "active";
+      state.smoke =
+        dev.data?.alarmStatus === "active" ||
+        dev.data?.smoke?.alarmStatus === "active";
       state.battery = dev.data?.batteryLevel ?? 100;
       state.battery_low = dev.data?.batteryStatus === "low";
     } else if (dt === RingDeviceType.SecurityPanel) {
       caps.push("mode", "active");
       state.mode = "disarmed";
       state.active = false;
-    } else if ([RingDeviceType.BaseStation, RingDeviceType.BaseStationPro, RingDeviceType.Keypad].includes(dt)) {
+    } else if (
+      [
+        RingDeviceType.BaseStation,
+        RingDeviceType.BaseStationPro,
+        RingDeviceType.Keypad,
+      ].includes(dt)
+    ) {
       caps.push("battery", "battery_low");
       state.battery = dev.data?.batteryLevel ?? 100;
       state.battery_low = dev.data?.batteryStatus === "low";
     } else {
-      caps.push("active"); state.active = false;
+      caps.push("active");
+      state.active = false;
     }
   }
   return { caps, state };
@@ -130,7 +208,8 @@ async function syncDevices(cfg, api) {
     const seen = new Set();
 
     for (const loc of locations) {
-      if (cfg.locationIds?.length && !cfg.locationIds.includes(loc.id)) continue;
+      if (cfg.locationIds?.length && !cfg.locationIds.includes(loc.id))
+        continue;
       api.log("info", `Syncing: ${loc.name}`);
 
       for (const cam of loc.cameras) {
@@ -140,7 +219,13 @@ async function syncDevices(cfg, api) {
           const did = makeDeviceId(cam.id, "cam");
           seen.add(did);
           if (!devices.has(did)) {
-            api.registerDevice({ id: did, name: `${cam.name}`, type: "camera", capabilities: caps, state });
+            api.registerDevice({
+              id: did,
+              name: `${cam.name}`,
+              type: "camera",
+              capabilities: caps,
+              state,
+            });
             api.log("info", `Registered camera: ${cam.name}`);
           }
           devices.set(did, { device: cam, type: "camera" });
@@ -149,7 +234,13 @@ async function syncDevices(cfg, api) {
           const ldid = makeDeviceId(cam.id, "light");
           seen.add(ldid);
           if (!devices.has(ldid)) {
-            api.registerDevice({ id: ldid, name: `${cam.name} Light`, type: "light", capabilities: ["on"], state: { on: cam.data?.led_status === "on" } });
+            api.registerDevice({
+              id: ldid,
+              name: `${cam.name} Light`,
+              type: "light",
+              capabilities: ["on"],
+              state: { on: cam.data?.led_status === "on" },
+            });
           }
           devices.set(ldid, { device: cam, type: "camera-light" });
         }
@@ -157,7 +248,13 @@ async function syncDevices(cfg, api) {
           const sdid = makeDeviceId(cam.id, "siren");
           seen.add(sdid);
           if (!devices.has(sdid)) {
-            api.registerDevice({ id: sdid, name: `${cam.name} Siren`, type: "switch", capabilities: ["on"], state: { on: Boolean(cam.data?.siren_status?.seconds_remaining) } });
+            api.registerDevice({
+              id: sdid,
+              name: `${cam.name} Siren`,
+              type: "switch",
+              capabilities: ["on"],
+              state: { on: Boolean(cam.data?.siren_status?.seconds_remaining) },
+            });
           }
           devices.set(sdid, { device: cam, type: "camera-siren" });
         }
@@ -167,7 +264,13 @@ async function syncDevices(cfg, api) {
         const did = makeDeviceId(chime.id, "chime");
         seen.add(did);
         if (!devices.has(did)) {
-          api.registerDevice({ id: did, name: `${chime.name}`, type: "switch", capabilities: ["active"], state: { active: !chime.data?.do_not_disturb?.seconds_left } });
+          api.registerDevice({
+            id: did,
+            name: `${chime.name}`,
+            type: "switch",
+            capabilities: ["active"],
+            state: { active: !chime.data?.do_not_disturb?.seconds_left },
+          });
         }
         devices.set(did, { device: chime, type: "chime" });
       }
@@ -180,13 +283,23 @@ async function syncDevices(cfg, api) {
             const type = mapDeviceType(dev.deviceType);
             if (!type) continue;
             if (type === "sensor" && dev.data?.status === "disabled") continue;
-            if (cfg.hideLightGroups && dev.deviceType === RingDeviceType.BeamsLightGroupSwitch) continue;
+            if (
+              cfg.hideLightGroups &&
+              dev.deviceType === RingDeviceType.BeamsLightGroupSwitch
+            )
+              continue;
 
             const did = makeDeviceId(dev.id, type);
             seen.add(did);
             if (!devices.has(did)) {
               const { caps, state } = deviceCapabilities(dev, type);
-              api.registerDevice({ id: did, name: dev.name, type, capabilities: caps, state });
+              api.registerDevice({
+                id: did,
+                name: dev.name,
+                type,
+                capabilities: caps,
+                state,
+              });
               api.log("info", `Registered ${type}: ${dev.name}`);
             }
             devices.set(did, { device: dev, type, location: loc });
@@ -200,14 +313,23 @@ async function syncDevices(cfg, api) {
         const mdid = makeDeviceId(loc.id, "mode");
         seen.add(mdid);
         if (!devices.has(mdid)) {
-          api.registerDevice({ id: mdid, name: `${loc.name} Mode`, type: "sensor", capabilities: ["mode"], state: { mode: "disarmed" } });
+          api.registerDevice({
+            id: mdid,
+            name: `${loc.name} Mode`,
+            type: "sensor",
+            capabilities: ["mode"],
+            state: { mode: "disarmed" },
+          });
         }
         devices.set(mdid, { location: loc, type: "location-mode" });
       }
     }
 
     for (const [did] of devices) {
-      if (!seen.has(did)) { devices.delete(did); api.log("info", `Removed stale: ${did}`); }
+      if (!seen.has(did)) {
+        devices.delete(did);
+        api.log("info", `Removed stale: ${did}`);
+      }
     }
   } catch (e) {
     api.log("error", `Sync failed: ${e.message}`);
@@ -221,19 +343,31 @@ async function pollStates(cfg, api) {
         const cam = info.device;
         await cam.requestUpdate().catch(() => {});
         const updates = {};
-        if (!cfg.hideCameraMotionSensor) updates.motion = cam.data?.motion_detection_enabled === true;
-        if (cam.hasBattery) { updates.battery = cam.batteryLevel ?? 100; updates.battery_low = cam.hasLowBattery ?? false; }
-        if (cam.hasLight && !cfg.hideCameraLight) updates.on = cam.data?.led_status === "on";
-        if (cam.hasSiren && !cfg.hideCameraSirenSwitch) updates.active = Boolean(cam.data?.siren_status?.seconds_remaining);
+        if (!cfg.hideCameraMotionSensor)
+          updates.motion = cam.data?.motion_detection_enabled === true;
+        if (cam.hasBattery) {
+          updates.battery = cam.batteryLevel ?? 100;
+          updates.battery_low = cam.hasLowBattery ?? false;
+        }
+        if (cam.hasLight && !cfg.hideCameraLight)
+          updates.on = cam.data?.led_status === "on";
+        if (cam.hasSiren && !cfg.hideCameraSirenSwitch)
+          updates.active = Boolean(cam.data?.siren_status?.seconds_remaining);
         api.updateDeviceState(did, updates);
       } else if (info.type === "camera-light") {
         await info.device.requestUpdate().catch(() => {});
-        api.updateDeviceState(did, { on: info.device.data?.led_status === "on" });
+        api.updateDeviceState(did, {
+          on: info.device.data?.led_status === "on",
+        });
       } else if (info.type === "camera-siren") {
         await info.device.requestUpdate().catch(() => {});
-        api.updateDeviceState(did, { on: Boolean(info.device.data?.siren_status?.seconds_remaining) });
+        api.updateDeviceState(did, {
+          on: Boolean(info.device.data?.siren_status?.seconds_remaining),
+        });
       } else if (info.type === "chime") {
-        api.updateDeviceState(did, { active: !info.device.data?.do_not_disturb?.seconds_left });
+        api.updateDeviceState(did, {
+          active: !info.device.data?.do_not_disturb?.seconds_left,
+        });
       } else if (info.type === "location-mode") {
       } else {
         const dev = info.device;
@@ -241,41 +375,112 @@ async function pollStates(cfg, api) {
         const d = dev.data;
         if (!d) continue;
 
-        if ([RingDeviceType.ContactSensor, RingDeviceType.RetrofitZone, RingDeviceType.TiltSensor,
-             RingDeviceType.GlassbreakSensor].includes(dt)) {
-          api.updateDeviceState(did, { contact: d.faulted === true, battery: d.batteryLevel ?? 100, battery_low: d.batteryStatus === "low" });
-        } else if (dt === RingDeviceType.MotionSensor || dt === RingDeviceType.BeamsMotionSensor) {
-          api.updateDeviceState(did, { motion: d.faulted === true, battery: d.batteryLevel ?? 100, battery_low: d.batteryStatus === "low" });
-        } else if (dt === RingDeviceType.FloodFreezeSensor || dt === RingDeviceType.WaterSensor) {
-          api.updateDeviceState(did, { leak: d.faulted === true, battery: d.batteryLevel ?? 100, battery_low: d.batteryStatus === "low" });
+        if (
+          [
+            RingDeviceType.ContactSensor,
+            RingDeviceType.RetrofitZone,
+            RingDeviceType.TiltSensor,
+            RingDeviceType.GlassbreakSensor,
+          ].includes(dt)
+        ) {
+          api.updateDeviceState(did, {
+            contact: d.faulted === true,
+            battery: d.batteryLevel ?? 100,
+            battery_low: d.batteryStatus === "low",
+          });
+        } else if (
+          dt === RingDeviceType.MotionSensor ||
+          dt === RingDeviceType.BeamsMotionSensor
+        ) {
+          api.updateDeviceState(did, {
+            motion: d.faulted === true,
+            battery: d.batteryLevel ?? 100,
+            battery_low: d.batteryStatus === "low",
+          });
+        } else if (
+          dt === RingDeviceType.FloodFreezeSensor ||
+          dt === RingDeviceType.WaterSensor
+        ) {
+          api.updateDeviceState(did, {
+            leak: d.faulted === true,
+            battery: d.batteryLevel ?? 100,
+            battery_low: d.batteryStatus === "low",
+          });
         } else if (dt === RingDeviceType.FreezeSensor) {
-          api.updateDeviceState(did, { active: d.faulted === true, battery: d.batteryLevel ?? 100, battery_low: d.batteryStatus === "low" });
+          api.updateDeviceState(did, {
+            active: d.faulted === true,
+            battery: d.batteryLevel ?? 100,
+            battery_low: d.batteryStatus === "low",
+          });
         } else if (dt === RingDeviceType.TemperatureSensor) {
-          api.updateDeviceState(did, { temperature: d.celsius ?? 0, battery: d.batteryLevel ?? 100, battery_low: d.batteryStatus === "low" });
-        } else if ([RingDeviceType.SmokeAlarm, RingDeviceType.CoAlarm, RingDeviceType.SmokeCoListener].includes(dt)) {
-          api.updateDeviceState(did, { smoke: d.alarmStatus === "active", battery: d.batteryLevel ?? 100, battery_low: d.batteryStatus === "low" });
+          api.updateDeviceState(did, {
+            temperature: d.celsius ?? 0,
+            battery: d.batteryLevel ?? 100,
+            battery_low: d.batteryStatus === "low",
+          });
+        } else if (
+          [
+            RingDeviceType.SmokeAlarm,
+            RingDeviceType.CoAlarm,
+            RingDeviceType.SmokeCoListener,
+          ].includes(dt)
+        ) {
+          api.updateDeviceState(did, {
+            smoke: d.alarmStatus === "active",
+            battery: d.batteryLevel ?? 100,
+            battery_low: d.batteryStatus === "low",
+          });
         } else if (dt === RingDeviceType.KiddeSmokeCoAlarm) {
-          api.updateDeviceState(did, { smoke: d.components?.["alarm.smoke"]?.alarmStatus === "active", battery: d.batteryLevel ?? 100, battery_low: d.batteryStatus === "low" });
+          api.updateDeviceState(did, {
+            smoke: d.components?.["alarm.smoke"]?.alarmStatus === "active",
+            battery: d.batteryLevel ?? 100,
+            battery_low: d.batteryStatus === "low",
+          });
         } else if (dt === RingDeviceType.SecurityPanel) {
           const alarmState = d.alarmInfo?.state;
-          let mode = "disarmed", active = false;
-          if (alarmState === "burglar-alarm" || alarmState === "fire-alarm") active = true;
+          let mode = "disarmed",
+            active = false;
+          if (alarmState === "burglar-alarm" || alarmState === "fire-alarm")
+            active = true;
           if (d.mode === "some") mode = "armed_home";
           else if (d.mode === "all") mode = "armed_away";
           else if (d.mode === "night") mode = "armed_night";
           api.updateDeviceState(did, { mode, active });
         } else if (dt === RingDeviceType.Lock) {
-          api.updateDeviceState(did, { locked: d.locked === "locked", battery: d.batteryLevel ?? 100, battery_low: d.batteryStatus === "low" });
-        } else if ([RingDeviceType.MultiLevelSwitch, RingDeviceType.MultiLevelBulb,
-                    RingDeviceType.BeamsSwitch, RingDeviceType.BeamsMultiLevelSwitch].includes(dt)) {
-          api.updateDeviceState(did, { on: d.on === true, brightness: Math.round((d.level ?? 1) * 100) });
-        } else if (dt === RingDeviceType.Switch || dt === RingDeviceType.Outlet ||
-                   dt === RingDeviceType.BeamsTransformerSwitch || dt === RingDeviceType.WaterValve) {
+          api.updateDeviceState(did, {
+            locked: d.locked === "locked",
+            battery: d.batteryLevel ?? 100,
+            battery_low: d.batteryStatus === "low",
+          });
+        } else if (
+          [
+            RingDeviceType.MultiLevelSwitch,
+            RingDeviceType.MultiLevelBulb,
+            RingDeviceType.BeamsSwitch,
+            RingDeviceType.BeamsMultiLevelSwitch,
+          ].includes(dt)
+        ) {
+          api.updateDeviceState(did, {
+            on: d.on === true,
+            brightness: Math.round((d.level ?? 1) * 100),
+          });
+        } else if (
+          dt === RingDeviceType.Switch ||
+          dt === RingDeviceType.Outlet ||
+          dt === RingDeviceType.BeamsTransformerSwitch ||
+          dt === RingDeviceType.WaterValve
+        ) {
           api.updateDeviceState(did, { on: d.on === true });
         } else if (dt === RingDeviceType.Fan) {
-          api.updateDeviceState(did, { on: d.on === true, rotation_speed: Math.round((d.level ?? 0) * 100) });
+          api.updateDeviceState(did, {
+            on: d.on === true,
+            rotation_speed: Math.round((d.level ?? 0) * 100),
+          });
         } else if (dt === RingDeviceType.Thermostat) {
-          api.updateDeviceState(did, { temperature: d.celsius ?? 0, target_temp: d.setPoint ?? 20 });
+          api.updateDeviceState(did, {
+            temperature: d.celsius ?? 0,
+            target_temp: d.setPoint ?? 20,
+          });
         }
       }
     } catch (e) {
@@ -288,11 +493,17 @@ async function pollLocationModes(cfg, api) {
   try {
     const locations = await ringApi.getLocations();
     for (const loc of locations) {
-      if (cfg.locationIds?.length && !cfg.locationIds.includes(loc.id)) continue;
+      if (cfg.locationIds?.length && !cfg.locationIds.includes(loc.id))
+        continue;
       const mdid = makeDeviceId(loc.id, "mode");
       if (!devices.has(mdid)) continue;
       const mode = await loc.getMode();
-      const map = { none: "disarmed", some: "armed_home", all: "armed_away", night: "armed_night" };
+      const map = {
+        none: "disarmed",
+        some: "armed_home",
+        all: "armed_away",
+        night: "armed_night",
+      };
       api.updateDeviceState(mdid, { mode: map[mode] || "disarmed" });
     }
   } catch (e) {
@@ -307,45 +518,76 @@ async function handleCommand(deviceId, key, value, api) {
   try {
     if (info.type === "camera") {
       const cam = info.device;
-      if (key === "on" && cam.hasLight) { await cam.setLight(value); api.updateDeviceState(deviceId, { on: value }); }
-      else if (key === "active" && cam.hasSiren) { await cam.setSiren(value); api.updateDeviceState(deviceId, { active: value }); }
-    }
-    else if (info.type === "camera-light") {
-      if (key === "on") { await info.device.setLight(value); api.updateDeviceState(deviceId, { on: value }); }
-    }
-    else if (info.type === "camera-siren") {
-      if (key === "on") { await info.device.setSiren(value); api.updateDeviceState(deviceId, { on: value }); }
-    }
-    else if (info.type === "chime") {
+      if (key === "on" && cam.hasLight) {
+        await cam.setLight(value);
+        api.updateDeviceState(deviceId, { on: value });
+      } else if (key === "active" && cam.hasSiren) {
+        await cam.setSiren(value);
+        api.updateDeviceState(deviceId, { active: value });
+      }
+    } else if (info.type === "camera-light") {
+      if (key === "on") {
+        await info.device.setLight(value);
+        api.updateDeviceState(deviceId, { on: value });
+      }
+    } else if (info.type === "camera-siren") {
+      if (key === "on") {
+        await info.device.setSiren(value);
+        api.updateDeviceState(deviceId, { on: value });
+      }
+    } else if (info.type === "chime") {
       if (key === "active") {
         if (value) await info.device.clearSnooze();
         else await info.device.snooze(1440);
         api.updateDeviceState(deviceId, { active: value });
       }
-    }
-    else if (info.type === "location-mode") {
-      const map = { disarmed: "none", armed_home: "some", armed_away: "all", armed_night: "night" };
+    } else if (info.type === "location-mode") {
+      const map = {
+        disarmed: "none",
+        armed_home: "some",
+        armed_away: "all",
+        armed_night: "night",
+      };
       await info.location.setLocationMode(map[value] || "none");
       api.updateDeviceState(deviceId, { mode: value });
-    }
-    else if (info.device?.deviceType === RingDeviceType.SecurityPanel) {
+    } else if (info.device?.deviceType === RingDeviceType.SecurityPanel) {
       if (key === "mode") {
-        const map = { disarmed: "none", armed_home: "some", armed_away: "all", armed_night: "night" };
+        const map = {
+          disarmed: "none",
+          armed_home: "some",
+          armed_away: "all",
+          armed_night: "night",
+        };
         await info.location.setAlarmMode(map[value] || "none");
         api.updateDeviceState(deviceId, { mode: value });
       }
-    }
-    else if (info.type === "lock" && key === "locked") {
-      if (value) { await info.device.sendCommand("lock.lock"); api.updateDeviceState(deviceId, { locked: true }); }
-      else { await info.device.sendCommand("lock.unlock"); api.updateDeviceState(deviceId, { locked: false }); }
-    }
-    else if (key === "on" && [RingDeviceType.Switch, RingDeviceType.Outlet,
-                               RingDeviceType.BeamsTransformerSwitch, RingDeviceType.WaterValve].includes(info.device?.deviceType)) {
+    } else if (info.type === "lock" && key === "locked") {
+      if (value) {
+        await info.device.sendCommand("lock.lock");
+        api.updateDeviceState(deviceId, { locked: true });
+      } else {
+        await info.device.sendCommand("lock.unlock");
+        api.updateDeviceState(deviceId, { locked: false });
+      }
+    } else if (
+      key === "on" &&
+      [
+        RingDeviceType.Switch,
+        RingDeviceType.Outlet,
+        RingDeviceType.BeamsTransformerSwitch,
+        RingDeviceType.WaterValve,
+      ].includes(info.device?.deviceType)
+    ) {
       await info.device.sendCommand("switch.on", { value });
       api.updateDeviceState(deviceId, { on: value });
-    }
-    else if ([RingDeviceType.MultiLevelSwitch, RingDeviceType.MultiLevelBulb,
-              RingDeviceType.BeamsSwitch, RingDeviceType.BeamsMultiLevelSwitch].includes(info.device?.deviceType)) {
+    } else if (
+      [
+        RingDeviceType.MultiLevelSwitch,
+        RingDeviceType.MultiLevelBulb,
+        RingDeviceType.BeamsSwitch,
+        RingDeviceType.BeamsMultiLevelSwitch,
+      ].includes(info.device?.deviceType)
+    ) {
       if (key === "on") {
         await info.device.sendCommand("switch.on", { value });
         api.updateDeviceState(deviceId, { on: value });
@@ -353,8 +595,7 @@ async function handleCommand(deviceId, key, value, api) {
         await info.device.sendCommand("switch.level", { level: value / 100 });
         api.updateDeviceState(deviceId, { brightness: value });
       }
-    }
-    else if (info.device?.deviceType === RingDeviceType.Fan) {
+    } else if (info.device?.deviceType === RingDeviceType.Fan) {
       if (key === "on") {
         await info.device.sendCommand("switch.on", { value });
         api.updateDeviceState(deviceId, { on: value });
@@ -362,14 +603,17 @@ async function handleCommand(deviceId, key, value, api) {
         await info.device.sendCommand("switch.level", { level: value / 100 });
         api.updateDeviceState(deviceId, { rotation_speed: value });
       }
-    }
-    else if (info.device?.deviceType === RingDeviceType.Thermostat) {
+    } else if (info.device?.deviceType === RingDeviceType.Thermostat) {
       if (key === "target_temp") {
-        await info.device.sendCommand("thermostat.set-point", { setPoint: value });
+        await info.device.sendCommand("thermostat.set-point", {
+          setPoint: value,
+        });
         api.updateDeviceState(deviceId, { target_temp: value });
       } else if (key === "heating_mode") {
         const modeMap = { 0: "off", 1: "heat", 2: "cool", 3: "aux" };
-        await info.device.sendCommand("thermostat.mode", { mode: modeMap[value] || "off" });
+        await info.device.sendCommand("thermostat.mode", {
+          mode: modeMap[value] || "off",
+        });
         api.updateDeviceState(deviceId, { heating_mode: value });
       }
     }
@@ -380,6 +624,7 @@ async function handleCommand(deviceId, key, value, api) {
 
 module.exports = {
   async start(config, api) {
+    savedApi = api;
     ringApi = new RingApi({
       refreshToken: config.refreshToken,
       cameraStatusPollingSeconds: config.cameraStatusPollingSeconds || 20,
@@ -394,7 +639,9 @@ module.exports = {
     });
 
     api.onCommand((deviceId, key, value) => {
-      handleCommand(deviceId, key, value, api).catch((e) => api.log("error", `Command error: ${e.message}`));
+      handleCommand(deviceId, key, value, api).catch((e) =>
+        api.log("error", `Command error: ${e.message}`),
+      );
     });
 
     await syncDevices(config, api);
@@ -402,12 +649,16 @@ module.exports = {
 
     const interval = (config.cameraStatusPollingSeconds || 20) * 1000;
     pollTimer = setInterval(() => {
-      pollStates(config, api).catch((e) => api.log("error", `Poll: ${e.message}`));
+      pollStates(config, api).catch((e) =>
+        api.log("error", `Poll: ${e.message}`),
+      );
     }, interval);
     if (pollTimer.unref) pollTimer.unref();
 
     locationModeTimer = setInterval(() => {
-      pollLocationModes(config, api).catch((e) => api.log("error", `Mode poll: ${e.message}`));
+      pollLocationModes(config, api).catch((e) =>
+        api.log("error", `Mode poll: ${e.message}`),
+      );
     }, 60000);
     if (locationModeTimer.unref) locationModeTimer.unref();
 
@@ -424,7 +675,10 @@ module.exports = {
       for (const [did, info] of devices) {
         if (info.type === "camera" && info.device.id === doorbell.id) {
           api.updateDeviceState(did, { doorbell: true });
-          setTimeout(() => api.updateDeviceState(did, { doorbell: false }), 5000);
+          setTimeout(
+            () => api.updateDeviceState(did, { doorbell: false }),
+            5000,
+          );
           break;
         }
       }
@@ -433,7 +687,12 @@ module.exports = {
     ringApi.onLocationModeChange.subscribe((locationId, mode) => {
       const did = makeDeviceId(locationId, "mode");
       if (devices.has(did)) {
-        const map = { none: "disarmed", some: "armed_home", all: "armed_away", night: "armed_night" };
+        const map = {
+          none: "disarmed",
+          some: "armed_home",
+          all: "armed_away",
+          night: "armed_night",
+        };
         api.updateDeviceState(did, { mode: map[mode] || "disarmed" });
       }
     });
@@ -444,7 +703,15 @@ module.exports = {
     if (locationModeTimer) clearInterval(locationModeTimer);
     pollTimer = null;
     locationModeTimer = null;
-    if (ringApi) { ringApi.disconnect(); ringApi = null; }
+    if (ringApi) {
+      ringApi.disconnect();
+      ringApi = null;
+    }
     devices.clear();
+  },
+
+  async setConfig(cfg) {
+    this.stop();
+    await this.start(cfg, savedApi);
   },
 };
