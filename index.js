@@ -7,6 +7,7 @@ let devices = new Map();
 let pollTimer = null;
 let locationModeTimer = null;
 let savedApi = null;
+const lastKnown = new Map();
 
 function makeDeviceId(zid, suffix = "") {
   return `ring-${zid}${suffix ? "-" + suffix : ""}`;
@@ -353,19 +354,19 @@ async function pollStates(cfg, api) {
           updates.on = cam.data?.led_status === "on";
         if (cam.hasSiren && !cfg.hideCameraSirenSwitch)
           updates.active = Boolean(cam.data?.siren_status?.seconds_remaining);
-        api.updateDeviceState(did, updates);
+        guardUpdate(did, updates);
       } else if (info.type === "camera-light") {
         await info.device.requestUpdate().catch(() => {});
-        api.updateDeviceState(did, {
+        guardUpdate(did, {
           on: info.device.data?.led_status === "on",
         });
       } else if (info.type === "camera-siren") {
         await info.device.requestUpdate().catch(() => {});
-        api.updateDeviceState(did, {
+        guardUpdate(did, {
           on: Boolean(info.device.data?.siren_status?.seconds_remaining),
         });
       } else if (info.type === "chime") {
-        api.updateDeviceState(did, {
+        guardUpdate(did, {
           active: !info.device.data?.do_not_disturb?.seconds_left,
         });
       } else if (info.type === "location-mode") {
@@ -375,6 +376,8 @@ async function pollStates(cfg, api) {
         const d = dev.data;
         if (!d) continue;
 
+        function g(updates) { guardUpdate(did, updates); }
+
         if (
           [
             RingDeviceType.ContactSensor,
@@ -383,7 +386,7 @@ async function pollStates(cfg, api) {
             RingDeviceType.GlassbreakSensor,
           ].includes(dt)
         ) {
-          api.updateDeviceState(did, {
+          g({
             contact: d.faulted === true,
             battery: d.batteryLevel ?? 100,
             battery_low: d.batteryStatus === "low",
@@ -392,7 +395,7 @@ async function pollStates(cfg, api) {
           dt === RingDeviceType.MotionSensor ||
           dt === RingDeviceType.BeamsMotionSensor
         ) {
-          api.updateDeviceState(did, {
+          g({
             motion: d.faulted === true,
             battery: d.batteryLevel ?? 100,
             battery_low: d.batteryStatus === "low",
@@ -401,19 +404,19 @@ async function pollStates(cfg, api) {
           dt === RingDeviceType.FloodFreezeSensor ||
           dt === RingDeviceType.WaterSensor
         ) {
-          api.updateDeviceState(did, {
+          g({
             leak: d.faulted === true,
             battery: d.batteryLevel ?? 100,
             battery_low: d.batteryStatus === "low",
           });
         } else if (dt === RingDeviceType.FreezeSensor) {
-          api.updateDeviceState(did, {
+          g({
             active: d.faulted === true,
             battery: d.batteryLevel ?? 100,
             battery_low: d.batteryStatus === "low",
           });
         } else if (dt === RingDeviceType.TemperatureSensor) {
-          api.updateDeviceState(did, {
+          g({
             temperature: d.celsius ?? 0,
             battery: d.batteryLevel ?? 100,
             battery_low: d.batteryStatus === "low",
@@ -425,13 +428,13 @@ async function pollStates(cfg, api) {
             RingDeviceType.SmokeCoListener,
           ].includes(dt)
         ) {
-          api.updateDeviceState(did, {
+          g({
             smoke: d.alarmStatus === "active",
             battery: d.batteryLevel ?? 100,
             battery_low: d.batteryStatus === "low",
           });
         } else if (dt === RingDeviceType.KiddeSmokeCoAlarm) {
-          api.updateDeviceState(did, {
+          g({
             smoke: d.components?.["alarm.smoke"]?.alarmStatus === "active",
             battery: d.batteryLevel ?? 100,
             battery_low: d.batteryStatus === "low",
@@ -445,9 +448,9 @@ async function pollStates(cfg, api) {
           if (d.mode === "some") mode = "armed_home";
           else if (d.mode === "all") mode = "armed_away";
           else if (d.mode === "night") mode = "armed_night";
-          api.updateDeviceState(did, { mode, active });
+          g({ mode, active });
         } else if (dt === RingDeviceType.Lock) {
-          api.updateDeviceState(did, {
+          g({
             locked: d.locked === "locked",
             battery: d.batteryLevel ?? 100,
             battery_low: d.batteryStatus === "low",
@@ -460,7 +463,7 @@ async function pollStates(cfg, api) {
             RingDeviceType.BeamsMultiLevelSwitch,
           ].includes(dt)
         ) {
-          api.updateDeviceState(did, {
+          g({
             on: d.on === true,
             brightness: Math.round((d.level ?? 1) * 100),
           });
@@ -470,14 +473,14 @@ async function pollStates(cfg, api) {
           dt === RingDeviceType.BeamsTransformerSwitch ||
           dt === RingDeviceType.WaterValve
         ) {
-          api.updateDeviceState(did, { on: d.on === true });
+          g({ on: d.on === true });
         } else if (dt === RingDeviceType.Fan) {
-          api.updateDeviceState(did, {
+          g({
             on: d.on === true,
             rotation_speed: Math.round((d.level ?? 0) * 100),
           });
         } else if (dt === RingDeviceType.Thermostat) {
-          api.updateDeviceState(did, {
+          g({
             temperature: d.celsius ?? 0,
             target_temp: d.setPoint ?? 20,
           });
@@ -661,6 +664,14 @@ module.exports = {
       );
     }, 60000);
     if (locationModeTimer.unref) locationModeTimer.unref();
+
+    function guardUpdate(did, updates) {
+      const prev = lastKnown.get(did);
+      if (!prev || Object.keys(updates).some(k => updates[k] !== prev[k])) {
+        api.updateDeviceState(did, updates);
+        lastKnown.set(did, { ...prev, ...updates });
+      }
+    }
 
     ringApi.onMotionDetected.subscribe((motion) => {
       for (const [did, info] of devices) {
