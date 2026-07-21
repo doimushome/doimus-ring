@@ -2,11 +2,16 @@
 
 const { RingApi, RingDeviceType } = require("ring-client-api");
 
+function createLogger(api, prefix) {
+  return (level, msg) => api.log(level, `[${prefix}] ${msg}`);
+}
+
 let ringApi = null;
 let devices = new Map();
 let pollTimer = null;
 let locationModeTimer = null;
 let savedApi = null;
+let log = null;
 const lastKnown = new Map();
 
 function makeDeviceId(zid, suffix = "") {
@@ -211,7 +216,7 @@ async function syncDevices(cfg, api) {
     for (const loc of locations) {
       if (cfg.locationIds?.length && !cfg.locationIds.includes(loc.id))
         continue;
-      api.log("info", `Syncing: ${loc.name}`);
+      log("info", `Syncing: ${loc.name}`);
 
       for (const cam of loc.cameras) {
         if (cfg.hideDeviceIds?.includes(makeDeviceId(cam.id))) continue;
@@ -227,7 +232,7 @@ async function syncDevices(cfg, api) {
               capabilities: caps,
               state,
             });
-            api.log("info", `Registered camera: ${cam.name}`);
+            log("info", `Registered camera: ${cam.name}`);
           }
           devices.set(did, { device: cam, type: "camera" });
         }
@@ -301,12 +306,12 @@ async function syncDevices(cfg, api) {
                 capabilities: caps,
                 state,
               });
-              api.log("info", `Registered ${type}: ${dev.name}`);
+              log("info", `Registered ${type}: ${dev.name}`);
             }
             devices.set(did, { device: dev, type, location: loc });
           }
         } catch (e) {
-          api.log("error", `Alarm device sync failed: ${e.message}`);
+          log("error", `Alarm device sync failed: ${e.message}`);
         }
       }
 
@@ -329,11 +334,11 @@ async function syncDevices(cfg, api) {
     for (const [did] of devices) {
       if (!seen.has(did)) {
         devices.delete(did);
-        api.log("info", `Removed stale: ${did}`);
+        log("info", `Removed stale: ${did}`);
       }
     }
   } catch (e) {
-    api.log("error", `Sync failed: ${e.message}`);
+    log("error", `Sync failed: ${e.message}`);
   }
 }
 
@@ -487,7 +492,7 @@ async function pollStates(cfg, api) {
         }
       }
     } catch (e) {
-      api.log("debug", `Poll error ${did}: ${e.message}`);
+      log("debug", `Poll error ${did}: ${e.message}`);
     }
   }
 }
@@ -510,7 +515,7 @@ async function pollLocationModes(cfg, api) {
       api.updateDeviceState(mdid, { mode: map[mode] || "disarmed" });
     }
   } catch (e) {
-    api.log("error", `Location mode poll: ${e.message}`);
+    log("error", `Location mode poll: ${e.message}`);
   }
 }
 
@@ -621,13 +626,14 @@ async function handleCommand(deviceId, key, value, api) {
       }
     }
   } catch (e) {
-    api.log("error", `Command failed ${deviceId}: ${e.message}`);
+    log("error", `Command failed ${deviceId}: ${e.message}`);
   }
 }
 
 module.exports = {
   async start(config, api) {
     savedApi = api;
+    log = createLogger(api, "Ring");
     ringApi = new RingApi({
       refreshToken: config.refreshToken,
       cameraStatusPollingSeconds: config.cameraStatusPollingSeconds || 20,
@@ -637,13 +643,13 @@ module.exports = {
     ringApi.onRefreshTokenUpdated.subscribe(({ newRefreshToken }) => {
       if (newRefreshToken && newRefreshToken !== config.refreshToken) {
         config.refreshToken = newRefreshToken;
-        api.log("info", "Ring refresh token updated");
+        log("info", "Ring refresh token updated");
       }
     });
 
     api.onCommand((deviceId, key, value) => {
       handleCommand(deviceId, key, value, api).catch((e) =>
-        api.log("error", `Command error: ${e.message}`),
+        log("error", `Command error: ${e.message}`),
       );
     });
 
@@ -653,14 +659,14 @@ module.exports = {
     const interval = (config.cameraStatusPollingSeconds || 20) * 1000;
     pollTimer = setInterval(() => {
       pollStates(config, api).catch((e) =>
-        api.log("error", `Poll: ${e.message}`),
+        log("error", `Poll: ${e.message}`),
       );
     }, interval);
     if (pollTimer.unref) pollTimer.unref();
 
     locationModeTimer = setInterval(() => {
       pollLocationModes(config, api).catch((e) =>
-        api.log("error", `Mode poll: ${e.message}`),
+        log("error", `Mode poll: ${e.message}`),
       );
     }, 60000);
     if (locationModeTimer.unref) locationModeTimer.unref();
