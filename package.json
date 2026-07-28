@@ -1,6 +1,6 @@
 {
   "name": "@doimus/ring",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Doimus native plugin for Ring devices (doorbells, cameras, alarm, sensors, smart lighting)",
   "license": "MIT",
   "author": "Matteo Crippa",

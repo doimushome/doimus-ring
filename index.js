@@ -12,6 +12,7 @@ let pollTimer = null;
 let locationModeTimer = null;
 let savedApi = null;
 let log = null;
+let doorbellTimer = null;
 const lastKnown = new Map();
 
 function makeDeviceId(zid, suffix = "") {
@@ -96,7 +97,7 @@ function cameraCapabilities(cam, cfg) {
   return { caps, state };
 }
 
-function deviceCapabilities(dev, type) {
+function deviceCapabilities(dev, type, cfg) {
   const caps = [],
     state = {};
   const dt = dev.deviceType;
@@ -187,9 +188,12 @@ function deviceCapabilities(dev, type) {
       state.battery = dev.data?.batteryLevel ?? 100;
       state.battery_low = dev.data?.batteryStatus === "low";
     } else if (dt === RingDeviceType.SecurityPanel) {
-      caps.push("mode", "active");
+      caps.push("mode");
       state.mode = "disarmed";
-      state.active = false;
+      if (!cfg?.hideAlarmSirenSwitch) {
+        caps.push("active");
+        state.active = false;
+      }
     } else if (
       [
         RingDeviceType.BaseStation,
@@ -298,7 +302,7 @@ async function syncDevices(cfg, api) {
             const did = makeDeviceId(dev.id, type);
             seen.add(did);
             if (!devices.has(did)) {
-              const { caps, state } = deviceCapabilities(dev, type);
+              const { caps, state } = deviceCapabilities(dev, type, cfg);
               api.registerDevice({
                 id: did,
                 name: dev.name,
@@ -446,14 +450,18 @@ async function pollStates(cfg, api) {
           });
         } else if (dt === RingDeviceType.SecurityPanel) {
           const alarmState = d.alarmInfo?.state;
-          let mode = "disarmed",
-            active = false;
-          if (alarmState === "burglar-alarm" || alarmState === "fire-alarm")
-            active = true;
+          let mode = "disarmed";
           if (d.mode === "some") mode = "armed_home";
           else if (d.mode === "all") mode = "armed_away";
           else if (d.mode === "night") mode = "armed_night";
-          g({ mode, active });
+          if (cfg.hideAlarmSirenSwitch) {
+            g({ mode });
+          } else {
+            let active = false;
+            if (alarmState === "burglar-alarm" || alarmState === "fire-alarm")
+              active = true;
+            g({ mode, active });
+          }
         } else if (dt === RingDeviceType.Lock) {
           g({
             locked: d.locked === "locked",
@@ -680,37 +688,51 @@ module.exports = {
     }
 
     ringApi.onMotionDetected.subscribe((motion) => {
-      for (const [did, info] of devices) {
-        if (info.type === "camera" && info.device.id === motion.id) {
-          api.updateDeviceState(did, { motion: motion.detected });
-          break;
+      try {
+        for (const [did, info] of devices) {
+          if (info.type === "camera" && info.device.id === motion.id) {
+            api.updateDeviceState(did, { motion: motion.detected });
+            break;
+          }
         }
+      } catch (err) {
+        log("error", "Motion detected handler error: " + err.message);
       }
     });
 
     ringApi.onDoorbellPressed.subscribe((doorbell) => {
-      for (const [did, info] of devices) {
-        if (info.type === "camera" && info.device.id === doorbell.id) {
-          api.updateDeviceState(did, { doorbell: true });
-          setTimeout(
-            () => api.updateDeviceState(did, { doorbell: false }),
-            5000,
-          );
-          break;
+      try {
+        for (const [did, info] of devices) {
+          if (info.type === "camera" && info.device.id === doorbell.id) {
+            if (doorbellTimer) clearTimeout(doorbellTimer);
+            api.updateDeviceState(did, { doorbell: true });
+            devices.get(did).doorbell = true;
+            doorbellTimer = setTimeout(() => {
+              api.updateDeviceState(did, { doorbell: false });
+              devices.get(did).doorbell = false;
+            }, 5000);
+            break;
+          }
         }
+      } catch (err) {
+        log("error", "Doorbell pressed handler error: " + err.message);
       }
     });
 
     ringApi.onLocationModeChange.subscribe((locationId, mode) => {
-      const did = makeDeviceId(locationId, "mode");
-      if (devices.has(did)) {
-        const map = {
-          none: "disarmed",
-          some: "armed_home",
-          all: "armed_away",
-          night: "armed_night",
-        };
-        api.updateDeviceState(did, { mode: map[mode] || "disarmed" });
+      try {
+        const did = makeDeviceId(locationId, "mode");
+        if (devices.has(did)) {
+          const map = {
+            none: "disarmed",
+            some: "armed_home",
+            all: "armed_away",
+            night: "armed_night",
+          };
+          api.updateDeviceState(did, { mode: map[mode] || "disarmed" });
+        }
+      } catch (err) {
+        log("error", "Location mode change handler error: " + err.message);
       }
     });
   },
