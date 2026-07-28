@@ -15,6 +15,14 @@ let log = null;
 let doorbellTimer = null;
 const lastKnown = new Map();
 
+function guardUpdate(did, updates, api) {
+  const prev = lastKnown.get(did);
+  if (!prev || Object.keys(updates).some(k => updates[k] !== prev[k])) {
+    api.updateDeviceState(did, updates);
+    lastKnown.set(did, { ...prev, ...updates });
+  }
+}
+
 function makeDeviceId(zid, suffix = "") {
   return `ring-${zid}${suffix ? "-" + suffix : ""}`;
 }
@@ -182,9 +190,7 @@ function deviceCapabilities(dev, type, cfg) {
       ].includes(dt)
     ) {
       caps.push("smoke", "battery", "battery_low");
-      state.smoke =
-        dev.data?.alarmStatus === "active" ||
-        dev.data?.smoke?.alarmStatus === "active";
+      state.smoke = dev.data?.alarmStatus === "active";
       state.battery = dev.data?.batteryLevel ?? 100;
       state.battery_low = dev.data?.batteryStatus === "low";
     } else if (dt === RingDeviceType.SecurityPanel) {
@@ -363,21 +369,21 @@ async function pollStates(cfg, api) {
           updates.on = cam.data?.led_status === "on";
         if (cam.hasSiren && !cfg.hideCameraSirenSwitch)
           updates.active = Boolean(cam.data?.siren_status?.seconds_remaining);
-        guardUpdate(did, updates);
+        guardUpdate(did, updates, api);
       } else if (info.type === "camera-light") {
         await info.device.requestUpdate().catch(() => {});
         guardUpdate(did, {
           on: info.device.data?.led_status === "on",
-        });
+        }, api);
       } else if (info.type === "camera-siren") {
         await info.device.requestUpdate().catch(() => {});
         guardUpdate(did, {
           on: Boolean(info.device.data?.siren_status?.seconds_remaining),
-        });
+        }, api);
       } else if (info.type === "chime") {
         guardUpdate(did, {
           active: !info.device.data?.do_not_disturb?.seconds_left,
-        });
+        }, api);
       } else if (info.type === "location-mode") {
       } else {
         const dev = info.device;
@@ -385,7 +391,7 @@ async function pollStates(cfg, api) {
         const d = dev.data;
         if (!d) continue;
 
-        function g(updates) { guardUpdate(did, updates); }
+        function g(updates) { guardUpdate(did, updates, api); }
 
         if (
           [
@@ -435,16 +441,11 @@ async function pollStates(cfg, api) {
             RingDeviceType.SmokeAlarm,
             RingDeviceType.CoAlarm,
             RingDeviceType.SmokeCoListener,
+            RingDeviceType.KiddeSmokeCoAlarm,
           ].includes(dt)
         ) {
           g({
             smoke: d.alarmStatus === "active",
-            battery: d.batteryLevel ?? 100,
-            battery_low: d.batteryStatus === "low",
-          });
-        } else if (dt === RingDeviceType.KiddeSmokeCoAlarm) {
-          g({
-            smoke: d.components?.["alarm.smoke"]?.alarmStatus === "active",
             battery: d.batteryLevel ?? 100,
             battery_low: d.batteryStatus === "low",
           });
@@ -678,14 +679,6 @@ module.exports = {
       );
     }, 60000);
     if (locationModeTimer.unref) locationModeTimer.unref();
-
-    function guardUpdate(did, updates) {
-      const prev = lastKnown.get(did);
-      if (!prev || Object.keys(updates).some(k => updates[k] !== prev[k])) {
-        api.updateDeviceState(did, updates);
-        lastKnown.set(did, { ...prev, ...updates });
-      }
-    }
 
     ringApi.onMotionDetected.subscribe((motion) => {
       try {
