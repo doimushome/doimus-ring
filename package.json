@@ -10,5 +10,8 @@
   },
   "dependencies": {
     "ring-client-api": "^14.0.0"
+  },
+  "overrides": {
+    "ip": "npm:@bybrave/ip2@^3.0.0"
   }
 }
